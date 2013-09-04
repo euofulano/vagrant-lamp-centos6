@@ -29,6 +29,19 @@ class cntlm {
 	service { 'cntlmd':
 		ensure => 'running'
 	}
+	
+	file_line {'':
+		ensure => present,
+		line => '',
+		path => ''
+		
+	}
+}
+
+class proxy {
+	
+
 }
 
 include cntlm	
+include proxy
