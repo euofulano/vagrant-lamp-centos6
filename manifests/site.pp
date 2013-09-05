@@ -1,5 +1,7 @@
+stage { setup: before => Stage[main] }
+
 Exec {
-    path => [ '/bin/', '/sbin/' , '/usr/bin/', '/usr/sbin/' ]
+    path => [ "/bin/", "/sbin/" , "/usr/bin/", "/usr/sbin/" ]
 }
 
 #define apply_proxy {
@@ -14,6 +16,9 @@ Exec {
 
 define config_proxy() {
 	file {$name:
+		owner   => "root",
+		group   => "root",
+		mode => '0644',
 		ensure => present,
 		replace => true,
 		path => "/etc/${name}",
@@ -57,4 +62,83 @@ class cntlm {
 	config_proxy {$config_proxys:}
 }
 
-include cntlm	
+class init {
+	exec { 'yum-update':
+		command => '/usr/bin/yum -y update',
+		require => Exec["grap-epel"],
+		timeout => 60,
+		tries   => 3
+	}
+
+	exec { "grap-epel":
+		command => "rpm -Uvh --httpproxy 127.0.0.1 --httpport 3128 http://download.fedoraproject.org/pub/epel/6/i386/epel-release-6-8.noarch.rpm",
+		creates => "/etc/yum.repos.d/epel.repo",
+		alias   => "grab-epel",
+		logoutput => true
+	}
+	
+	package { "iptables": 
+		ensure => present;
+	}
+	
+	service { "iptables":
+		require => Package["iptables"],
+		hasstatus => true,
+		status => "true",
+		hasrestart => false,
+	}
+	
+	file { "/etc/sysconfig/iptables":
+		owner   => "root",
+		group   => "root",
+		mode    => 600,
+		replace => true,
+		ensure  => present,
+		source  => "/vagrant/files/iptables.txt",
+		require => Package["iptables"],
+		notify  => Service["iptables"],
+	}
+	  
+	  
+	  
+	  
+}
+
+#class repository {
+  # We need cURL installed to import the key
+#  package { 'curl': ensure => installed }
+
+  # Install the GPG key
+#  exec { 'import-key':
+#	path    => '/bin:/usr/bin',
+#    command => 'curl http://repos.servergrove.com/servergrove-rhel-6/RPM-GPG-KEY-servergrove-rhel-6 -o /etc/pki/rpm-gpg/RPM-GPG-KEY-servergrove-rhel-6',
+#    unless  => 'ls /etc/pki/rpm-gpg/RPM-GPG-KEY-servergrove-rhel-6',
+#    require => Package['curl'],
+#  }
+
+ # exec { "epel.repo":
+ #   command => 'sudo rpm -ivh --httpproxy 127.0.0.1 --httpport 3128 http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm',
+#	path    => ['/bin', '/usr/bin'],
+ #   unless  => 'rpm -qa | grep epel'
+#  }
+
+  #yumrepo { 'servergrove':
+  #  baseurl  => 'http://repos.servergrove.com/servergrove-rhel-6/$basearch',
+  #  enabled  => 1,
+  #  gpgcheck => 1,
+  #  gpgkey   => 'file:///etc/pki/rpm-gpg/RPM-GPG-KEY-servergrove-rhel-6',
+  #  require  => Exec['import-key']
+  #}
+
+  # Creates the source file for the ServerGrove repository
+  #file { 'servergrove.repo':
+  #  path    => '/etc/yum.repos.d/servergrove.repo',
+  #  require => Yumrepo['servergrove']
+  #}
+#}
+
+class {'cntlm': 
+	# Força a execução do cntlm antes de todos as outras tarefas
+	stage => setup
+}	
+include init
