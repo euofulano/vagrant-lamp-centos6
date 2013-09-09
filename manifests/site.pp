@@ -1,3 +1,10 @@
+###############################################################################
+# - https://github.com/pipe-devnull/vagrant-dev-lamp
+# - https://github.com/puphpet/vagrant-puppet-lamp
+# - https://github.com/vagrantee/vagrantee
+# - 
+#
+#
 stage { setup: before => Stage[main] }
 
 Exec {
@@ -26,6 +33,22 @@ define config_proxy() {
 	}
 
 	notify {"Aplicando configuração de proxy em ${name}":}
+}
+
+define yumgroup($ensure = "present", $optional = false) {
+   case $ensure {
+      present,installed: {
+         $pkg_types_arg = $optional ? {
+            true => "--setopt=group_package_types=optional,default,mandatory",
+            default => ""
+         }
+         exec { "Installing $name yum group":
+            command => "yum -y groupinstall $pkg_types_arg $name",
+            unless => "yum -y groupinstall $pkg_types_arg $name --downloadonly",
+            timeout => 600,
+         }
+      }
+   }
 }
 
 class cntlm {
@@ -71,7 +94,7 @@ class init {
 	}
 
 	exec { "grap-epel":
-		command => "rpm -Uvh --httpproxy 127.0.0.1 --httpport 3128 http://download.fedoraproject.org/pub/epel/6/i386/epel-release-6-8.noarch.rpm",
+		command => "rpm -Uvh http://download.fedoraproject.org/pub/epel/6/i386/epel-release-6-8.noarch.rpm",
 		creates => "/etc/yum.repos.d/epel.repo",
 		alias   => "grab-epel",
 		logoutput => true
@@ -98,47 +121,69 @@ class init {
 		require => Package["iptables"],
 		notify  => Service["iptables"],
 	}
+	
+	yumgroup { '"Development tools"': }
 	  
-	  
-	  
-	  
+	package {['vim-enhanced', 'vim-common', 'vim-minimal', 'telnet','zip','unzip','git','nodejs','npm','upstart', 'zlib-devel', 'lynx', 'sendmail', 'sendmail-cf']:
+		ensure => latest,
+		require => Exec['yum-update']
+	} 
 }
 
-#class repository {
-  # We need cURL installed to import the key
-#  package { 'curl': ensure => installed }
-
-  # Install the GPG key
-#  exec { 'import-key':
-#	path    => '/bin:/usr/bin',
-#    command => 'curl http://repos.servergrove.com/servergrove-rhel-6/RPM-GPG-KEY-servergrove-rhel-6 -o /etc/pki/rpm-gpg/RPM-GPG-KEY-servergrove-rhel-6',
-#    unless  => 'ls /etc/pki/rpm-gpg/RPM-GPG-KEY-servergrove-rhel-6',
-#    require => Package['curl'],
-#  }
-
- # exec { "epel.repo":
- #   command => 'sudo rpm -ivh --httpproxy 127.0.0.1 --httpport 3128 http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm',
-#	path    => ['/bin', '/usr/bin'],
- #   unless  => 'rpm -qa | grep epel'
-#  }
-
-  #yumrepo { 'servergrove':
-  #  baseurl  => 'http://repos.servergrove.com/servergrove-rhel-6/$basearch',
-  #  enabled  => 1,
-  #  gpgcheck => 1,
-  #  gpgkey   => 'file:///etc/pki/rpm-gpg/RPM-GPG-KEY-servergrove-rhel-6',
-  #  require  => Exec['import-key']
-  #}
-
-  # Creates the source file for the ServerGrove repository
-  #file { 'servergrove.repo':
-  #  path    => '/etc/yum.repos.d/servergrove.repo',
-  #  require => Yumrepo['servergrove']
-  #}
-#}
 
 class {'cntlm': 
 	# Força a execução do cntlm antes de todos as outras tarefas
 	stage => setup
-}	
-include init
+}
+	
+class{'init': }
+class{'apache': }
+
+apache::dotconf { 'custom':
+  content => 'EnableSendfile Off',
+}
+
+apache::module { 'rewrite': }
+
+class { 'php':
+  service => 'apache',
+  require => Package['apache'],
+}
+
+php::module {['common', 'mysql', 'cli', 'intl', 'mcrypt', 'gd', 'xml', 'xmlrpc', 'mbstring', 'bcmath', 'dba', 'embedded', 'enchant', 'imap']: }
+
+file { "/etc/php.d/extra.ini":
+	ensure  => 'present',
+	source => '/vagrant/files/extra.ini',
+	require => Package['php'],
+	notify  => Service['httpd'],
+}
+
+php::pecl::config { http_proxy: value => "http://localhost:3128" }
+php::pecl::config { auto_discover: value => "1" }
+
+file { "/var/www/html/phpinfo.php":
+	owner   => "root",
+	group   => "root",
+	mode    => 644,
+	replace => true,
+	ensure  => present,
+	content => '<?php phpinfo(); ?>',
+	require => Class["php"]
+}
+
+class { 'php::pear':
+  require => Class['php'],
+}
+
+class { 'php::devel':
+  require => Class['php'],
+}
+
+#class { 'php::composer':
+#  require => Package['php', 'curl'],
+#}
+
+class { "mysql":
+  root_password => '123456',
+}
